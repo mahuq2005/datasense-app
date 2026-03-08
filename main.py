@@ -1,22 +1,21 @@
 """
 Main entry point for DataSense Chat Application
-Run this file to start the application
+Run this file to start the application on AWS App Runner
 """
 
 import os
 import sys
-import getpass
 import requests
 import json
 import re
 import pandas as pd
 import numpy as np
-import chromadb
-from chromadb.utils.embedding_functions import OpenAIEmbeddingFunction
 from openai import OpenAI
 import gradio as gr
 from typing import List, Tuple, Dict, Any, Optional
 from datetime import datetime
+
+# Remove: import getpass, chromadb, chromadb.utils (not needed)
 
 
 class JokeService:
@@ -65,52 +64,17 @@ class JokeService:
 
 
 class SemanticSearchService:
-    """Service 2: Semantic Search - Music reviews with ChromaDB"""
+    """Service 2: Semantic Search - Simplified version without ChromaDB for App Runner"""
     
-    def __init__(self, client: OpenAI, api_gateway_key: str, persist_directory: str = "./chroma_data"):
+    def __init__(self, client: OpenAI, api_gateway_key: str):
         self.client = client
-        self.persist_directory = persist_directory
+        self.api_gateway_key = api_gateway_key
+        self.reviews_data = self._load_reviews_data()
+        self.embeddings_cache = {}  # Simple cache for embeddings
         
-        # Create persistent ChromaDB client
-        os.makedirs(persist_directory, exist_ok=True)
-        self.chroma_client = chromadb.PersistentClient(path=persist_directory)
-        
-        # Setup embedding function
-        self.embedding_function = OpenAIEmbeddingFunction(
-            api_key="any value",
-            api_base='https://k7uffyg03f.execute-api.us-east-1.amazonaws.com/prod/openai/v1',
-            default_headers={"x-api-key": api_gateway_key},
-            model_name="text-embedding-3-small"
-        )
-        
-        # Create or get collection
-        self.collection = self._setup_collection()
-        
-        # Load sample data if collection is empty
-        if self.collection and self.collection.count() == 0:
-            self._load_sample_data()
-    
-    def _setup_collection(self):
-        try:
-            collections = self.chroma_client.list_collections()
-            collection_names = [col.name for col in collections]
-            
-            if "music_reviews" in collection_names:
-                return self.chroma_client.get_collection(
-                    name="music_reviews",
-                    embedding_function=self.embedding_function
-                )
-            else:
-                return self.chroma_client.create_collection(
-                    name="music_reviews",
-                    embedding_function=self.embedding_function
-                )
-        except Exception as e:
-            print(f"Error setting up collection: {e}")
-            return None
-    
-    def _load_sample_data(self):
-        reviews_data = [
+    def _load_reviews_data(self):
+        """Load sample music reviews"""
+        return [
             {"id": "rev_001", "artist": "James Blake", "album": "Playing Robots Into Heaven", 
              "text": "This album blends electronic beats with soulful vocals perfectly. The production is crisp and the songwriting is exceptional.", 
              "score": 8.5, "genre": "Electronic"},
@@ -127,45 +91,97 @@ class SemanticSearchService:
              "text": "Complex jazz harmonies meet hip-hop beats in this innovative fusion. The musicianship is top-notch.", 
              "score": 8.7, "genre": "Jazz"}
         ]
-        
-        df = pd.DataFrame(reviews_data)
+    
+    def get_embedding(self, text):
+        """Get embedding from OpenAI API"""
+        # Check cache first
+        if text in self.embeddings_cache:
+            return self.embeddings_cache[text]
         
         try:
-            if self.collection:
-                self.collection.add(
-                    documents=df['text'].tolist(),
-                    metadatas=df[['artist', 'album', 'score', 'genre']].to_dict('records'),
-                    ids=df['id'].tolist()
-                )
-                print(f"✅ Loaded {len(df)} sample reviews into ChromaDB")
+            response = self.client.embeddings.create(
+                model="text-embedding-3-small",
+                input=text
+            )
+            embedding = response.data[0].embedding
+            self.embeddings_cache[text] = embedding
+            return embedding
         except Exception as e:
-            print(f"Error loading sample data: {e}")
+            print(f"Error getting embedding: {e}")
+            return None
+    
+    def cosine_similarity(self, a, b):
+        """Calculate cosine similarity between two vectors"""
+        a = np.array(a)
+        b = np.array(b)
+        return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
     
     def search(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
-        if self.collection is None:
-            return []
-        
+        """Simple semantic search using OpenAI embeddings"""
         try:
-            results = self.collection.query(
-                query_texts=[query],
-                n_results=n_results
-            )
+            # Get query embedding
+            query_embedding = self.get_embedding(query)
+            if query_embedding is None:
+                # Fallback to simple keyword search
+                return self._keyword_search(query, n_results)
             
-            formatted_results = []
-            for i in range(len(results['ids'][0])):
-                formatted_results.append({
-                    'id': results['ids'][0][i],
-                    'text': results['documents'][0][i],
-                    'metadata': results['metadatas'][0][i],
-                    'distance': results['distances'][0][i] if results['distances'] else None
-                })
+            # Get embeddings for all reviews
+            results = []
+            for review in self.reviews_data:
+                review_embedding = self.get_embedding(review['text'])
+                if review_embedding:
+                    similarity = self.cosine_similarity(query_embedding, review_embedding)
+                    results.append({
+                        'id': review['id'],
+                        'text': review['text'],
+                        'metadata': {
+                            'artist': review['artist'],
+                            'album': review['album'],
+                            'score': review['score'],
+                            'genre': review['genre']
+                        },
+                        'score': similarity  # Higher is better
+                    })
             
-            return formatted_results
+            # Sort by similarity (higher is better)
+            results.sort(key=lambda x: x['score'], reverse=True)
+            return results[:n_results]
+            
         except Exception as e:
-            print(f"Error searching: {e}")
-            return []
+            print(f"Error in semantic search: {e}")
+            return self._keyword_search(query, n_results)
+    
+    def _keyword_search(self, query: str, n_results: int = 3) -> List[Dict[str, Any]]:
+        """Fallback keyword search"""
+        query_lower = query.lower()
+        results = []
+        
+        for review in self.reviews_data:
+            # Simple keyword matching
+            text_lower = review['text'].lower()
+            score = 0
+            for word in query_lower.split():
+                if word in text_lower:
+                    score += 1
+            
+            if score > 0:
+                results.append({
+                    'id': review['id'],
+                    'text': review['text'],
+                    'metadata': {
+                        'artist': review['artist'],
+                        'album': review['album'],
+                        'score': review['score'],
+                        'genre': review['genre']
+                    },
+                    'score': score / len(query_lower.split())  # Normalize score
+                })
+        
+        results.sort(key=lambda x: x['score'], reverse=True)
+        return results[:n_results]
     
     def format_response(self, query: str, results: List[Dict[str, Any]]) -> str:
+        """Format search results into a readable response"""
         if not results:
             return "No matching reviews found. Try a different search!"
         
@@ -346,9 +362,10 @@ class DataSenseChat:
     """Main chat application integrating all services"""
     
     def __init__(self, api_gateway_key: str):
+        # Simplified OpenAI client initialization for App Runner
         self.client = OpenAI(
             base_url='https://k7uffyg03f.execute-api.us-east-1.amazonaws.com/prod/openai/v1',
-            api_key='any value',
+            api_key=api_gateway_key,
             default_headers={"x-api-key": api_gateway_key}
         )
         
@@ -440,8 +457,8 @@ def create_gradio_interface(chat_app: DataSenseChat) -> gr.Blocks:
         chatbot = gr.Chatbot(
             label="Conversation",
             height=400,
-            bubble_full_width=False,
-            avatar_images=(None, "🧠")
+            # Removed bubble_full_width for compatibility
+            avatar_images=(None, None)  # Removed emoji avatar to avoid file not found error
         )
         
         with gr.Row():
@@ -469,29 +486,28 @@ def create_gradio_interface(chat_app: DataSenseChat) -> gr.Blocks:
 
 
 def get_api_key() -> str:
-    """Get API Gateway key from environment or user input"""
+    """Get API Gateway key from environment (simplified for App Runner)"""
     api_key = os.getenv('API_GATEWAY_KEY')
-    
     if not api_key:
-        print("API Gateway key not found in environment.")
-        api_key = getpass.getpass("Please enter your API Gateway key: ")
-    
+        # In cloud, we just fail - no interactive input
+        raise ValueError("API_GATEWAY_KEY environment variable not set")
     return api_key
 
 
 def main():
-    """Main application entry point"""
+    """Main application entry point for App Runner"""
     print("=" * 50)
-    print("🚀 Starting DataSense Chat Application")
+    print("🚀 Starting DataSense Chat Application on AWS App Runner")
     print("=" * 50)
     
-    api_key = get_api_key()
-    
-    if not api_key:
-        print("❌ Error: API Gateway key is required")
+    # Get API key from environment (App Runner sets this)
+    try:
+        api_key = get_api_key()
+        print("✅ API key found")
+    except ValueError as e:
+        print(f"❌ {e}")
         sys.exit(1)
     
-    print("✅ API key received")
     print("🔄 Initializing services...")
     
     try:
@@ -506,11 +522,19 @@ def main():
     
     print("\n" + "=" * 50)
     print("✅ Application ready!")
-    print("📝 The interface will open in your browser")
-    print("💡 Press Ctrl+C to stop the server")
     print("=" * 50 + "\n")
     
-    demo.launch(share=True, debug=False)
+    # IMPORTANT: App Runner sets the PORT environment variable
+    port = int(os.environ.get("PORT", 8080))
+    print(f"🚀 Starting server on port {port}")
+    
+    # Launch for App Runner - no share=True, bind to 0.0.0.0
+    demo.launch(
+        server_name="0.0.0.0",  # Listen on all interfaces
+        server_port=port,        # Use port from App Runner
+        share=False,              # Don't create temporary public link
+        quiet=False               # Set to True to reduce logs
+    )
 
 
 if __name__ == "__main__":
