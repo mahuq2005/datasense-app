@@ -3,12 +3,19 @@ runtime: python311
 
 build:
   commands:
-    - python --version
-    - python -m pip install --upgrade pip
-    - python -m pip install -r requirements.txt
+    pre-build:
+      - echo "Starting build process..."
+    build:
+      - python3 --version
+      - pip3 install --upgrade pip
+      - pip3 install -r requirements.txt
+    post-build:
+      - echo "Build completed successfully"
 
 run:
-  command: python main.py
+  pre-run:
+    - echo "Starting application..."
+  command: python3 main.py
   network:
     port: 8080
   env:
@@ -16,7 +23,7 @@ run:
       value: "0.0.0.0"
     - name: GRADIO_SERVER_PORT
       value: "8080"
-    - name: API_GATEWAY_KEY
-      value: "your-actual-key-here"  # Replace with your key
     - name: PYTHONUNBUFFERED
       value: "1"
+    - name: API_GATEWAY_KEY
+      value: "your-actual-key-here"  # REPLACE WITH YOUR KEY
