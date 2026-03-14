@@ -26,4 +26,4 @@ run:
     - name: PYTHONUNBUFFERED
       value: "1"
     - name: API_GATEWAY_KEY
-      value: "your-actual-key-here"  # REPLACE WITH YOUR KEY
+      value: "NUKSudsWDOVIMjkaem15"  # REPLACE WITH YOUR KEY
