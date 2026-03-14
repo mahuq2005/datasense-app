@@ -2,15 +2,11 @@ version: 1.0
 runtime: python311
 
 build:
-  commands:
-    pre-build:
-      - echo "Starting build process..."
-    build:
-      - python3 --version
-      - pip3 install --upgrade pip
-      - pip3 install -r requirements.txt
-    post-build:
-      - echo "Build completed successfully"
+  pre-build:  # ← This should be at the same level as 'build'
+    - python3 --version
+    - pip3 install --upgrade pip
+  build:
+    - pip3 install -r requirements.txt
 
 run:
   pre-run:
@@ -23,7 +19,7 @@ run:
       value: "0.0.0.0"
     - name: GRADIO_SERVER_PORT
       value: "8080"
+    - name: API_GATEWAY_KEY
+      value: "NUKSudsWDOVIMjkaem15"
     - name: PYTHONUNBUFFERED
       value: "1"
-    - name: API_GATEWAY_KEY
-      value: "NUKSudsWDOVIMjkaem15"  # REPLACE WITH YOUR KEY
