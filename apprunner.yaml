@@ -1,21 +1,17 @@
 version: 1.0
 runtime: python311
 
-echo "# Force fresh build - $(date)" >> apprunner.yaml
 build:
   commands:
     pre-build:
-      - echo "Starting pre-build..."
+      - cat .cachebust  # This forces a new layer
       - python3 --version
       - python3 -m ensurepip --upgrade
-      - python3 -m pip3 install --upgrade pip
-      - export DOCKER_DEFAULT_PLATFORM=linux/amd64
     build:
-      - echo "Starting build with pip3..."
-      # CRITICAL: Use pip3 explicitly
-      - python3 -m pip3 install -r requirements.txt
+      - python3 -m pip install --upgrade pip
+      - python3 -m pip install -r requirements.txt
     post-build:
-      - echo "Build completed successfully"
+      - echo "Build completed at $(date)"
 
 run:
   command: python3 main.py
