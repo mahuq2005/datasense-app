@@ -5,6 +5,7 @@ build:
   pre-build:  # ← This should be at the same level as 'build'
     - python3 --version
     - pip3 install --upgrade pip
+    - export DOCKER_DEFAULT_PLATFORM=linux/amd64
   build:
     - pip3 install -r requirements.txt
 
