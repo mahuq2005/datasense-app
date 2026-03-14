@@ -2,16 +2,20 @@ version: 1.0
 runtime: python311
 
 build:
-  pre-build:  # ← This should be at the same level as 'build'
-    - python3 --version
-    - pip3 install --upgrade pip
-    - export DOCKER_DEFAULT_PLATFORM=linux/amd64
-  build:
-    - pip3 install -r requirements.txt
+  commands:
+    pre-build:
+      - echo "Starting pre-build..."
+      - python3 --version
+      - pip3 install --upgrade pip
+      - export DOCKER_DEFAULT_PLATFORM=linux/amd64
+    build:
+      - echo "Starting build with pip3..."
+      # CRITICAL: Use pip3 explicitly
+      - pip3 install -r requirements.txt
+    post-build:
+      - echo "Build completed successfully"
 
 run:
-  pre-run:
-    - echo "Starting application..."
   command: python3 main.py
   network:
     port: 8080
