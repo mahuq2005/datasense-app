@@ -1,6 +1,7 @@
 version: 1.0
 runtime: python311
 
+echo "# Force fresh build - $(date)" >> apprunner.yaml
 build:
   commands:
     pre-build:
